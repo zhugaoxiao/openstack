@@ -1,0 +1,335 @@
+# 评估和开发环境
+Kolla可以选择两种虚拟化开发环境。这样就能实现在不影响原来的主机操作系统的情况下进行Kolla开发。
+如果在支持Heat的OpenStack云环境开发Kolla，参考Heat开发环境指南。
+如果在VirtualBox、Libvirt以及Vagrant下开发Kolla，参考Vagrant虚拟化环境指南。
+如果要评估Kolla，社区强烈建议在评估期间使用裸机或者虚拟机。跟随本文档的指南开始在裸机或者虚拟机上使用Kolla部署OpenStack。
+
+# 主机要求
+硬件要求：
+
+- 2个或更多网卡
+- 8GB内存
+- 40GB磁盘
+
+
+# 安装相关依赖
+Kolla 已经在CentOS、Oracle Linux、RHEL、Ubuntu，不管容器OS平台还是裸机部署都已经进行过测试。
+
+|Component|	Min| Version|	Max| Version|	Comment|
+| :----:  | :----: |:----:|:----:|:----:|:----:|
+|Ansible	|1.9.4|	< 2.0.0|	On |deployment host| |
+|Docker|	1.10.0|	none|	On| target nodes| |
+|Docker| Python	|1.6.0|	none|	On target nodes| |
+|Python |Jinja2	|2.6.0|	none|	On deployment host|- |
+
+
+启用EPEL源并安装pip包管理：
+
+    yum install -y epel-release
+    yum install -y python-pip
+
+安装Docker，推荐使用Docker官方版本：
+
+    curl -sSL https://get.docker.io | bash
+
+上面的命令会安装当前最稳定的Docker版本，不过Kolla的发布版本与docker版本是不同步的，有些功能可能在新版本下存在异常。
+当前最新的Kolla版本在docker-engine >=1.10.0版本进行过测试。检查你的docker版本：
+
+    docker --version
+
+当与systemd一起使用时，在Docker daemon里要设置docker-engine恰当的信息。像下面的内容一样在docker.service文件配置。
+如果你不正确配置MountFlags选项，Kolla-Ansible在部署neutron-duchp-agent容器时会失败并抛出APIError/HTTPError错误。在像下面那样添加过
+drop-in unit文件后，重新加载并重启docker服务：
+
+为docker.service创建drop-in unit目录。
+
+    mkdir -p /etc/systemd/system/docker.service.d
+
+创建 drop-in unit文件。
+
+    tee /etc/systemd/system/docker.service.d/kolla.conf <<-'EOF'
+    [Service]
+    MountFlags=shared
+    EOF
+
+重新加载daemon
+
+    systemctl daemon-reload
+    systemctl restart docker
+
+在目标主机上你同样需要更新Docker python库版本。CentOS当前带的版本比较老，使用pip安装一个新版本：
+
+    pip install -U docker-py
+
+在运行OpenStack CLI/Python代码的系统上，Kolla社区推荐安装OpenStack python客户端。在安装OpenStack python客户端前，需要先安装下面的相关依赖：
+
+    yum install -y python-devel libffi-devel openssl-devel gcc git
+
+使用下面命令完成安装:
+
+    pip install -U python-openstackclient
+
+克隆Kolla仓库：
+
+    git clone https://git.openstack.org/openstack/kolla
+
+安装Kolla工具和Python依赖：
+
+    pip install kolla/
+
+拷贝Kolla配置到/etc目录：
+
+    cd kolla
+    cp -r etc/kolla /etc/
+
+可选的，你可以安装tox并使用下面的步骤生成编译配置。
+
+    pip install tox
+    tox -e genconfig
+
+生成的配置文件是etc/kolla/kolla-build.conf，你可以拷贝到/etc/kolla目录下。默认的位置是/etc/kolla/kolla-build.conf 或者 etc/kolla/kolla-build.conf。
+
+如果NTP服务器在本地开发环境运行，那么ntpd对时的精度会比较高，当在广域网连接时，chrony对时的精度比较高。当运行Ceph时，由于对时间一致性的要求建议配置ntpd进行对时。
+OpenStack, RabbitMQ和Ceph需要所有的主机时间一致来确保正常的消息传递。特别是Ceph，如果两个主机时间相差0.05秒，就可能出现问题。
+一些OpenStack服务默认时间不能小于2秒。因此，强烈建议配置NTP服务。
+
+安装并启用ntp服务：
+
+    yum -y install ntp
+    systemctl enable ntpd.service
+    systemctl start ntpd.service
+
+在许多系统上，Libvirt默认是启动的。请在需要部署的目标上禁用libvirt。libvirt同时只能运行一份。
+
+    systemctl stop libvirtd.service
+    systemctl disable libvirtd.service
+
+Kolla使用Ansible部署OpenStack。Kolla推荐使用1.9.4版本的Ansible。如果你通过yum安装，需要启用EPEL源。
+
+    yum -y install ansible
+
+一些诸如pycrypto的ansible依赖可能需要gcc，安装gcc：
+
+    yum -y install gcc
+
+
+# 部署registry（多节点要求）
+
+Docker registry是一个本地registry，用于替代从Docker Hub上获取镜像。不管有没有本地registry，Kolla都可以使用，不过如果是多节点部署，registry还是必须的。
+Docker registry 2.3之前的版本性能非常差，因为每个镜像都要推送所有的容器数据，而没有用到Docker层级的特性来优化推送操作。
+ For more information reference pokey registry.
+更多信息参考[pokey registry](https://github.com/docker/docker/issues/14018)。
+
+Kolla社区推荐使用registry 2.3或者之后的版本。按照下面方式部署registry 2.3版本：
+
+    docker run -d -p 4000:5000 --restart=always --name registry registry:2
+
+> 注意：Kolla使用4000端口搜索Docker registry。（Docker 默认端口是5000）
+在启用registry后，需要告诉Docker使用安全registry进行通信。
+为了在CentOS上启用安全registry通信，添加下面内容到“/etc/sysconfig/docker” 文件，IP地址192.168.1.100是registry运行机器地址。
+
+      other_args="--insecure-registry 192.168.1.100:4000"
+
+Docker 公司为CentOS版本打包的docker-engine存在问题，不会从“/etc/sysconfig/docker”读取其他参数配置。
+为了修改这个问题，添加下面的内容到 “/etc/systemd/system/docker.service.d/kolla.conf”文件：
+
+      [Service]
+      EnvironmentFile=/etc/sysconfig/docker
+
+# It's necessary to clear ExecStart before attempting to override it
+ or systemd will complain that it is defined more than once.
+在尝试进行覆盖ExecStart前，有必要清空ExecStart，不然systemd会提示已经定义过一次。
+
+    ExecStart=
+    ExecStart=/usr/bin/docker daemon -H fd:// $other_args
+
+执行下面的命令重启docker：
+
+    systemctl daemon-reload
+    systemctl stop docker
+    systemctl start docker
+
+# 编译容器镜像
+The Kolla community does not currently generate new images for each commit to the repository.
+当前Kolla社区不会为每个提交编译新镜像并推送到repository。
+在100m网络下，所有编译镜像push到docker registry的时间大概是5小时。所以现在Docker Hub registry与OpenStack CI/CD系统一起使用还有一些技术限制。
+
+Kolla社区为每个Kolla分支版本编译和发布测试过的镜像，不过如果使用主线版本，推荐在本地编译镜像。
+
+在运行下面的命令前，确保docker daemon在运行，不然编译过程会失败。使用默认参数编译镜像:
+
+    kolla-build
+
+默认情况下，kolla-build使用CentOS作为基础镜像和二进制安装作为基础安装方式编译所有容器。
+
+如果想要修改，在kolla-build后使用下面的参数:
+
+    --base [ubuntu|centos|fedora|oraclelinux]
+    --type [binary|source]
+
+如果推送到本地registry（推荐）使用flags：
+
+    kolla-build --registry registry_ip_address:registry_ip_port --push
+
+> 注意：如果需要不同的版本或者类型，在kolla-build命令后添加 –base 和 –type 。
+
+在Xeon硬件，NVME SSDs和100m网络条件下，Docker registry v1版本，所有的容器编译过程大概30分钟。
+
+The CentOS mirrors are flakey and the RDO delorean repository is not mirrored at all.
+As a result occasionally some containers fail to build.
+CentOS同步会发神经并且RDO delorean 仓库（DLRN builds and maintains yum repositories following OpenStack uptream commit streams.）也不是完全同步的。因此有时候一些容器会编译失败。
+
+为了修改编译问题，如果第一次失败，编译工具会自动尝试重新编译3次。
+
+你也可以单独的编译容器。
+例如，glance容器编译失败，所有glance相关的容器可以像下面这样重新编译：
+
+    kolla-build glance
+
+为了查看所有可用参数，运行：
+
+    kolla-build -h
+
+
+# 部署Kolla
+
+Kolla社区提供两种Kolla部署实例方式：单机和多节点。单机部署与使用devstack在单机上部署所有OpenStack服务类似。多节点部署时，OpenStack服务可以运行在不同的节点上。
+本文仅描述了单机部署方式。
+Each method is represented as an Ansible inventory file.
+每个方法都代表一个Ansible 文件。
+More information on the Ansible inventory file can be found in the Ansible inventory introduction.
+在Ansible inventory介绍可以找到更多信息。
+All variables for the environment can be specified in the files: “/etc/kolla/globals.yml” and “/etc/kolla/passwords.yml”
+所有的环境变量都可以在文件: “/etc/kolla/globals.yml” 和 “/etc/kolla/passwords.yml”中设置。
+
+Generate passwords for /etc/kolla/passwords.yml using the provided kolla-genpwd tool.
+使用提供的kolla-genpwd工具为/etc/kolla/passwords.yml生成密码。
+The tool will populate all empty fields in the “/etc/kolla/passwords.yml” file using randomly generated values
+ to secure the deployment.
+工具会把所有的空域填充慢，在“/etc/kolla/passwords.yml”文件，使用随机生成的值来加密部署。
+ Optionally, the passwords may be populate in the file by hand.
+可选的，密码也可以手动在文件中制定。
+
+    kolla-genpwd
+
+Start by editing /etc/kolla/globals.yml. Check and edit, if needed, these parameters: kolla_base_distro, kolla_install_type.
+These parameters should match what you used in the “kolla-build” command line.
+ The default for kolla_base_distro is “centos” and for kolla_install_type is “binary”.
+ If you want to use ubuntu with source type, then you should make sure globals.yml has the following entries
+从编辑/etc/kolla/globals.yml开始。如果有需要，检查并编辑这些参数：kolla_base_distro, kolla_install_type.
+这些参数应该与你在“kolla-build” 命令行使用的相同。
+kolla_base_distro的默认值是 “centos” 并且 kolla_install_type is “binary”.
+
+    kolla_base_distro: "ubuntu"
+    kolla_install_type: "source"
+
+Please specify an unused IP address in the network to act as a VIP for kolla_internal_vip_address.
+ The VIP will be used with keepalived and added to the “api_interface” as specified in the globals.yml
+请指定一个网络中未使用的IP地址作为kolla_internal_vip_address的VIP。
+VIP会被用于keepalived并且添加到globals.yml文件的 “api_interface” 。
+
+    kolla_internal_vip_address: "10.10.10.254"
+
+If the environment doesn’t have a free IP address available for VIP configuration,
+the host’s IP address may be used here by disabling HAProxy by adding:
+如果环境没有可用的IP地址给VIP配置，可以通过添加来禁用HAProxy，使用主机的IP地址。
+
+    enable_haproxy: "no"
+
+Note this method is not recommended and generally not tested by the Kolla community,
+but included since sometimes a free IP is not available in a testing environment.
+注意，这种方法不推荐并且Kolla社区没有测试过，不过由于在测试环境中有时候没有可用的IP地址而包含了这个特性。
+
+The “network_interface” variable is the interface to which Kolla binds API services.
+ For example, when starting up Mariadb it will bind to the IP on the interface list in the “network_interface” variable.
+
+    network_interface: "eth0"
+
+The “neutron_external_interface” variable is the interface that will be used for the external bridge in Neutron. Without this bridge the deployment instance traffic will be unable to access the rest of the Internet. In the case of a single interface on a machine, a veth pair may be used where one end of the veth pair is listed here and the other end is in a bridge on the system.
+
+    neutron_external_interface: "eth1"
+
+If using a local docker registry, set the docker_registry information where the local registry is operating on IP address 192.168.1.100 and the port 4000.
+
+    docker_registry: "192.168.1.100:4000"
+
+For “all-in-one” deploys, the following commands can be run. These will setup all of the containers on the localhost. These commands will be wrapped in the kolla-script in the future. Note even for all-in-one installs it is possible to use the docker registry for deployment, although not strictly required.
+
+First, check that the deployment targets are in a state where Kolla may deploy to them:
+
+    kolla-ansible prechecks
+
+开始部署：
+    kolla-ansible deploy
+
+If APIError/HTTPError is received from the neutron-dhcp-agent container, remove the container and recreate it:
+
+    docker rm -v -f neutron_dhcp_agent
+    kolla-ansible deploy
+
+In order to see all available parameters, run:
+
+    kolla-ansible -h
+
+Note In case of deploying using the _nested_ environment (eg. Using Virtualbox VM’s, KVM VM’s), if your compute node supports hardware acceleration for virtual machines.
+For this, run the follow command in compute node:
+
+    $ egrep -c '(vmx|svm)' /proc/cpuinfo
+
+If this command returns a value of zero, your compute node does not support hardware acceleration and you must configure libvirt to use QEMU instead of KVM.
+
+For this, change the virt_type option in the [libvirt] section of nova-compute.conf file inside the /etc/kolla/config/ directory.
+
+    [libvirt]
+    virt_type=qemu
+
+A bare metal system with Ceph takes 18 minutes to deploy. A virtual machine deployment takes 25 minutes. These are estimates; different hardware may be faster or slower but should be near these results.
+
+After successful deployment of OpenStack, the Horizon dashboard will be available by entering IP address or hostname from kolla_external_fqdn, or kolla_internal_fqdn. If these variables were not set during deploy they default to kolla_internal_vip_address.
+
+Useful tools
+After successful deployment of OpenStack, run the following command can create an openrc file /etc/kolla/admin-openrc.sh on the deploy node. Or view tools/openrc-example for an example of an openrc that may be used with the environment.
+
+kolla-ansible post-deploy
+After the openrc file is created, use the following command to initialize an environment with a glance image and neutron networks:
+
+source /etc/kolla/admin-openrc.sh
+kolla/tools/init-runonce
+Failures
+Nearly always when Kolla fails, it is caused by a CTRL-C during the deployment process or a problem in the globals.yml configuration.
+
+To correct the problem where Operators have a misconfigured environment, the Kolla developers have added a precheck feature which ensures the deployment targets are in a state where Kolla may deploy to them. To run the prechecks, execute:
+
+kolla-ansible prechecks
+If a failure during deployment occurs it nearly always occurs during evaluation of the software. Once the Operator learns the few configuration options required, it is highly unlikely they will experience a failure in deployment.
+
+Deployment may be run as many times as desired, but if a failure in a bootstrap task occurs, a further deploy action will not correct the problem. In this scenario, Kolla’s behavior is undefined.
+
+The fastest way during evaluation to recover from a deployment failure is to remove the failed deployment:
+
+On each node where OpenStack is deployed run:
+
+tools/cleanup-containers
+tools/cleanup-host
+The Operator will have to copy via scp or some other means the cleanup scripts to the various nodes where the failed containers are located.
+
+Any time the tags of a release change, it is possible that the container implementation from older versions won’t match the Ansible playbooks in a new version. If running multinode from a registry, each node’s Docker image cache must be refreshed with the latest images before a new deployment can occur. To refresh the docker cache from the local Docker registry:
+
+kolla-ansible pull
+Debugging Kolla
+The container’s status can be determined on the deployment targets by executing:
+
+docker ps -a
+If any of the containers exited, this indicates a bug in the container. Please seek help by filing a bug or contacting the developers via IRC.
+
+The logs can be examined by executing:
+
+docker exec -it heka bash
+The logs from all services in all containers may be read from /var/log/kolla/SERVICE_NAME
+
+If the stdout logs are needed, please run:
+
+docker logs <container-name>
+Note that most of the containers don’t log to stdout so the above command will provide no information.
+
+To learn more about Docker command line operation please refer to Docker documentation.
