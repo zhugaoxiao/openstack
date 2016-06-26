@@ -37,12 +37,29 @@ EOF
 
 ### 构建镜像
 
-* fedora
+* 常用参数
+
+-a i386,amd64,armhf
+-t qcow2,tar,vhd,docker,aci,raw
+-u 不压缩
+-c 清空环境变量
+-n 跳过默认 'base' element
+-p 指定相关包
+
+
+* rhel系列
 
 ```
-# disk-image-create -a amd64 -o fedora -t qcow2 vm fedora  
-# disk-image-create -u -o fedora-image -a amd64 fedora baremetal local-conf dhcp-all-interfaces
+# export DIB_DISTRIBUTION_MIRROR=http://amirror.com/centos
+# DIB_DEBUG_TRACE=0
 
+# disk-image-create -a amd64 -o centos7 vm centos7
+# disk-image-create -a amd64 -o centos vm centos
+
+# disk-image-create -a amd64 -o rhel-baremetal base rhel baremetal
+
+# disk-image-create -a amd64 -o fedora vm fedora  
+# disk-image-create -a amd64 -o fedora baremetal fedora local-conf dhcp-all-interfaces
 ```
 
 * ubuntu
@@ -50,6 +67,9 @@ EOF
 ```
 # export DIB_RELEASE=trusty
 # export DIB_DISTRIBUTION_MIRROR=http://cn.archive.ubuntu.com/ubuntu
+# export DIB_LOCAL_IMAGE=/root/image/centos7-custom.qcow2
+# export DIB_CLOUD_INIT_DATASOURCES="Ec2, ConfigDrive, OpenStack"
+# export DIB_CLOUD_IMAGES=http://cloud-images.ubuntu.com
 
 # disk-image-create -a amd64 -o ubuntu vm ubuntu
 # disk-image-create -a amd64 -o ubuntu-baremetal vm base ubuntu baremetal
@@ -57,62 +77,47 @@ EOF
 # disk-image-create -a amd64 -o ubuntu-mysql -p mysql-server,tmux vm ubuntu
 ```
 
-* rhel
-
-构建包括内核和ramdisk的镜像，会包括rhel-baremetal.qcow2, rhel-baremetal.vmlinux和rhel-baremetal.kernel三个文件。
-
-```
-disk-image-create –o rhel-baremetal –a amd64 –u base rhel baremetal
-```
-
 
 ### 构建pxe镜像
 
-构建pxe镜像，会包括initramfs和kernel两个文件。
+构建pxe镜像，用于ironic，会包括initramfs和kernel两个文件。其实这个命令就是disk-image-create
 
 ```
-# ramdisk-image-create -a amd64 – pxe deploy
+# ramdisk-image-create -a amd64 pxe-deploy
 
-# ramdisk-image-create -o deploy-baremetal.ramdisk deploy-baremetal
+# ramdisk-image-create -a amd64 -o deploy-baremetal ubuntu deploy-baremetal
 
-# ramdisk-image-create -o deploy-ironic.ramdisk deploy-ironic
+# ramdisk-image-create -a amd64 -o deploy-ironic.ramdisk ubuntu deploy-ironic
 ```
 
 ### 构建自定义镜像
 
 * nginx
-To create an Ubuntu image for a specific workload, you first need to create the nginx element.
-Creating a nginx element
-1. From a command prompt, create a directory structure of elements/nginxusing following command:
-mkdir –p ~/elements/nginx
-Note:The tilde (~) represents your home directory.
-2. Change to this newly created directory:
-cd ~/elements/nginx
-3. From here, create another directory named install.d, which will contain the installation hooks:
-mkdir install.d
-4. In install.d, create a file named 15-nginxand change its execute permissions:
-touch 15-nginxchmod a+x 15-nginx
-5. Using an editor, such as vi, add the following lines to the 15-nginx file:
-!/bin/bash
-set -euxinstall-packages nginx
-
+创建 nginx element
 ```
-# disk-image-create -o base -a amd64 vm base baremetal nginx
+# mkdir –p ~/elements/nginx
+# cd ~/elements/nginx
+# mkdir install.d
+# touch 15-nginx
+# chmod a+x 15-nginx
+
+# echo "
+!/bin/bash
+set -eux
+install-packages nginx" >15-nginx
+
+# disk-image-create -a amd64 -o base-nginx vm base baremetal nginx
 ```
 
 * mongoDB
-Creating a mongodb element
-1. From a command prompt, create the directory structure elements/mongodbusing following command:
-mkdir –p ~/elements/mongodb
-Note:The tilde (~) represents the path to your home directory.
-2. Change to this newly created directory:
-cd ~/elements/mongodb
-3. From here, create another directory named pre-install.d, which will contain the pre-installation hooks to
-setup yum repositories:
-mkdir pre-install.d
-4. In pre-install.d, create a file named 10-mongodband change its execute permissions:
-touch 10-mongodbchmod a+x 10-mongodb
-5. Using an editor, such as vi, add the following lines to the 10-mongodb file:
+创建 mongodb element
+```
+# mkdir –p ~/elements/mongodb
+# cd ~/elements/mongodb
+# mkdir pre-install.d
+# touch 10-mongodb
+# chmod a+x 10-mongodb
+# echo "
 !/bin/bash
 set -eux
 echo "[mongodb]" > /etc/yum.repos.d/mongodb.repo
@@ -120,25 +125,28 @@ echo "name=mongodb_repo" >> /etc/yum.repos.d/mongodb.repo
 echo "baseurl=http://downloads-distro.mongodb.org/repo/redhat/os/x86_64/" >>
 echo "enabled=1" >> /etc/yum.repos.d/mongodb.repo
 echo "gpgcheck=0" >> /etc/yum.repos.d/mongodb.repo
-While still in ~/elements/mongodb, create another directory named install.d, which will contain the
-installation hooks:
-mkdir install.d
-7. In install.d, create a file named 10-mongodband change its execute permissions:
-touch 10-mongodbchmod a+x 10-mongodb
-8. Using your editor, add the following lines to the 10-mongodb file:
-!/bin/bash
-set -euxinstall-packages mongo-10gen mongo-10gen-server
-9. While still in ~/elements/mongodb, create another directory named finalise.d, which will contain the
-finalise hooks:
-mkdir finalise.d
-10. In finalise.d, create a file named 10-mongodband change its execute permissions:
-touch 10-mongodbchmod a+x 10-mongodb
-11. Using an editor, add the following lines to the 10-mongodb file:
-!/bin/bash
-set -euxrm -Rf /etc/yum.repos.d/mongodb.repo
+" >10-mongodb
 
-```
-disk-image-create –o <image_prefix> –a amd64–u base rhel baremetal mongodb
+# mkdir install.d
+# touch 10-mongodb
+# chmod a+x 10-mongodb
+
+# echo "
+!/bin/bash
+set -eux
+install-packages mongo-10gen mongo-10gen-server">10-mongodb
+# cd ..
+
+# mkdir finalise.d
+# touch 10-mongodb
+# chmod a+x 10-mongodb
+# echo "
+!/bin/bash
+set -eux
+#rm -Rf /etc/yum.repos.d/mongodb.repo">10-mongodb
+# cd ..
+
+# disk-image-create –a amd64 –o rhel-mongodb base rhel baremetal mongodb
 ```
 
 ### 构建tripleo 镜像
@@ -229,7 +237,6 @@ gpg --armor --export 1C4CBDCDCD2EFD2A | apt-key add -
 
 
 ```
-正式
 # git clone https://github.com/openstack/trove-integration.git
 # git clone https://github.com/openstack/tripleo-image-elements.git
 
