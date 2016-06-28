@@ -11,14 +11,15 @@
 
 ```
 # sed -i 's/archive.ubuntu.com/mirrors.ustc.edu.cn/' /etc/apt/sources.list
-# mkdir /root/.pip
-# cat >/root/.pip/pip.conf <<EOF
+# sed -i 's/security.ubuntu.com/mirrors.ustc.edu.cn/' /etc/apt/sources.list
+# mkdir ~/.pip
+# cat >~/.pip/pip.conf <<EOF
 [global]
-index-url = https://pypi.douban.com/simple/
-https://pypi.mirrors.ustc.edu.cn/simple
+index-url = https://pypi.mirrors.ustc.edu.cn/simple
 EOF
 # apt-get update
 # apt-get install git-core -y
+# ntpdate ntp.sjtu.edu.cn
 ```
 
 ## 配置用户
@@ -33,23 +34,13 @@ EOF
 
 克隆trove-integration
 ```
-# su ubuntu
 $ cd ~
 $ git clone https://github.com/openstack/trove-integration.git
-$ git branch -a
-$ git checkout stable/liberty
 ```
 
 进入脚本目录，并开始进行 Trove 安装：
 ```
 $ cd trove-integration/scripts/
-$ cat local.conf
-[[local|localrc]]
-# use TryStack git mirror
-GIT_BASE=http://git.trystack.cn
-NOVNC_REPO=http://git.trystack.cn/kanaka/noVNC.git
-SPICE_REPO=http://git.trystack.cn/git/spice/spice-html5.git
-
 $ ./redstack install
 .........................................................................
 2016-06-09 08:24:04.617 | stack.sh completed in 3431 seconds.
@@ -57,6 +48,28 @@ $ ./redstack install
 *******************************************************************************
 FINISHED INSTALL
 *******************************************************************************
+```
+为了加快过程，可以使用trystack的镜像源，在devstack下新增文件。
+```
+$ cat > local.conf <<EOF
+[[local|localrc]]
+# use TryStack git mirror
+GIT_BASE=http://git.trystack.cn
+NOVNC_REPO=http://git.trystack.cn/kanaka/noVNC.git
+SPICE_REPO=http://git.trystack.cn/git/spice/spice-html5.git
+EOF
+```
+或者可以手动下载好，加速安装过程。
+```
+$ cd /opt/stack
+$ for i in nova cinder glance heat horizon keystone neutron swift neutron-lbaas neutron-fwaas requirements \
+heat-cfntools heat-templates tempest \
+os-apply-config os-collect-config os-refresh-config \
+python-heatclient python-neutronclient python-novaclient python-openstackclient python-troveclient \
+dib-utils diskimage-builder tripleo-image-elements trove trove-dashboard
+do
+git clone http://git.trystack.cn/openstack/$i
+done
 ```
 过程中会自动下载并安装相关依赖、软件等，耐心等待过程结束，最后会提示完成安装。
 ```
