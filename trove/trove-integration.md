@@ -10,16 +10,18 @@
 ## 配置环境
 
 ```
-# sed -i 's/archive.ubuntu.com/mirrors.ustc.edu.cn/' /etc/apt/sources.list
-# sed -i 's/security.ubuntu.com/mirrors.ustc.edu.cn/' /etc/apt/sources.list
+$ sudo sed -i 's/archive.ubuntu.com/mirrors.ustc.edu.cn/' /etc/apt/sources.list
+$ sudo sed -i 's/security.ubuntu.com/mirrors.ustc.edu.cn/' /etc/apt/sources.list
+$ sudo -s
 # mkdir ~/.pip
-# cat >~/.pip/pip.conf <<EOF
+# cat > ~/.pip/pip.conf <<EOF
 [global]
 index-url = https://pypi.mirrors.ustc.edu.cn/simple
 EOF
-# apt-get update
-# apt-get install git-core -y
-# ntpdate ntp.sjtu.edu.cn
+# exit
+$ sudo apt-get update
+$ sudo apt-get install git-core -y
+$ sudo ntpdate ntp.sjtu.edu.cn
 ```
 
 ## 配置用户
@@ -41,6 +43,7 @@ $ git clone https://github.com/openstack/trove-integration.git
 进入脚本目录，并开始进行 Trove 安装：
 ```
 $ cd trove-integration/scripts/
+exportGIT_BASE=http://git.trystack.cn
 $ ./redstack install
 .........................................................................
 2016-06-09 08:24:04.617 | stack.sh completed in 3431 seconds.
@@ -49,16 +52,12 @@ $ ./redstack install
 FINISHED INSTALL
 *******************************************************************************
 ```
-为了加快过程，可以使用trystack的镜像源，在devstack下新增文件。
+过程中会自动下载并安装相关依赖、软件等，耐心等待过程结束，最后会提示完成安装。
 ```
-$ cat > local.conf <<EOF
-[[local|localrc]]
-# use TryStack git mirror
-GIT_BASE=http://git.trystack.cn
-NOVNC_REPO=http://git.trystack.cn/kanaka/noVNC.git
-SPICE_REPO=http://git.trystack.cn/git/spice/spice-html5.git
-EOF
+$ source devstack/openrc admin admin
+$ nova image-list
 ```
+
 或者可以手动下载好，加速安装过程。
 ```
 $ cd /opt/stack
@@ -71,29 +70,25 @@ do
 git clone http://git.trystack.cn/openstack/$i
 done
 ```
-过程中会自动下载并安装相关依赖、软件等，耐心等待过程结束，最后会提示完成安装。
-```
-$ source devstack/openrc admin admin
-$ nova image-list
-```
-
 
 # trove镜像创建
-制作mysql的实例运行镜像，并把镜像导入Glance，在Trove中建立datastore（比如mysql）和version（比如5.6版本）信息，运行./redstack kick-start mysql。（其中version信息是包含存放在Glance中的vm镜像信息）这个过程也有点长，因为是使用diskimage-builder根据定义好的element去动态下载打包并配置镜像的。
-实际上利用trove-instegration项目建立的实例运行的vm镜像，并没有把guestagent打包进去，而是通过vm文件系统中/etc/init/troveguestagent脚本，在vm启动的时候从宿主机上把guestagent拷贝过去，这个过程其实是很快的，因为程序比较小。
-Add mysql as a parameter to set build and add the mysql guest image. This will also populate /etc/trove/test.conf with appropriate values for running the integration tests.
+
+使用mysql作为参数构建和添加mysql镜像，过程中因为集成测试会修改/etc/trove/test.conf配置。
 ```
 $ ./redstack kick-start mysql
 ```
+运行./redstack kick-start mysql制作mysql的vm镜像，并把镜像导入Glance，在Trove中建立datastore（比如mysql）和version（比如5.6版本）信息，。（其中version信息是包含存放在Glance中的vm镜像信息）这个过程也有点长，因为是使用diskimage-builder根据定义好的element去动态下载打包并配置镜像的。
+利用trove-instegration项目构建的vm镜像，并没有把guestagent打包进去，而是通过vm文件系统中/etc/init/troveguestagent脚本，在vm启动的时候从宿主机上把guestagent拷贝过去。
 
-Initialize the test configuration and set up test users (overwrites /etc/trove/test.conf)
+初始化测试配置并配置测试用户（覆盖/etc/trove/test.conf）。
 ```
 $ ./redstack test-init
 ```
-Build the image and add it to glance
+编译镜像并添加至 glance
 ```
 $  ./redstack build-image mysql
 ```
+查看镜像
 ```
 $ source devstack/openrc admin admin
 $ openstack image list
@@ -106,24 +101,24 @@ $ openstack image list
 | 242a0c32-007b-4afa-890d-9085d92a0eb3 | cirros-0.3.4-x86_64-uec-kernel  | active |
 +--------------------------------------+---------------------------------+--------+
 ```
-## Adding TripleO-Image-Elements to Trove-Integration/redstack images
 
-When you run ./redstack kick-start mysql it creates an image under ~/images/ubuntu-mysql from Trove-Integration/scripts/elements/ubuntu-mysql. If you want to add an element to ubuntu-mysql such as os-apply-config (https://github.com/openstack/tripleo-image-elements/tree/master/elements/os-apply-config) you need to add the variable EXTRA_ELEMENTS to the trove-integration/scripts/redstack.rc file. By default redstack kick-start should be able to find os-apply-config because it clones all of the tripleo-image-elements. The Elements path redstack kick-start uses is ELEMENTS_PATH=$REDSTACK_SCRIPTS/files/elements:$PATH_TRIPLEO_ELEMENTS/elements
-Ex: EXTRA_ELEMENTS="os-apply-config" # adding single element
-Ex: EXTRA_ELEMENTS="os-apply-config os-refresh-config" # adding multiple elements is space delimited
+添加TripleO-Image-Elements到Trove-Integration/redstack镜像。
 
-Now when running ./redstack kick-start mysql it will add the os-apply-config element to the ubuntu-mysql image.
+如果你想添加诸如 [os-apply-config](https://github.com/openstack/tripleo-image-elements/tree/master/elements/os-apply-config)的元素到ubuntu-mysql，你需要添加变量EXTRA_ELEMENTS到trove-integration/scripts/redstack.rc文件。默认情况下，redstack kick-start能自动找到os-apply-config，因为它克隆了所有的tripleo-image-elements。 redstack kick-start使用的元素路径是ELEMENTS_PATH=$REDSTACK_SCRIPTS/files/elements:$PATH_TRIPLEO_ELEMENTS/elements。
+添加一个元素：
+EXTRA_ELEMENTS="os-apply-config"
+添加多个元素：
+EXTRA_ELEMENTS="os-apply-config os-refresh-config"
 
-Now you can add the folder os-apply-config to the Trove-Integration/scripts/elements/ubuntu-mysql image to add custom configuration files etc.
-Adding the file (foo.conf) and folders (os-apply-config/etc/init) to the element ubuntu-mysql (ubuntu-mysql/os-apply-config/etc/init/foo.conf) will add the file foo.conf to /etc/init when doing a trove create with the new image ./redstack kick-start mysql built.
+现在运行./redstack kick-start mysql会自动添加os-apply-config元素到ubuntu-mysql镜像。
 
-Rebuilding image
+现在你可以添加文件夹os-apply-config到Trove-Integration/scripts/elements/ubuntu-mysql镜像来添加自定义配置文件了。
 
-Once an image is created you will need to do nova image-delete and delete the ~/images/ubuntu-mysql file in order to have ./redstack kick-start mysql build the image again. If you do not, the existing image ubuntu-mysql will be used again.
+添加文件(foo.conf)和文件夹(os-apply-config/etc/init)到元素ubuntu-mysql (ubuntu-mysql/os-apply-config/etc/init/foo.conf)，当./redstack kick-start mysql 构建镜像时，会添加文件foo.conf到/etc/init。
 
+重新构建镜像
 
-
-
+一旦镜像构建好，你必须从nova中删除镜像并且删除~/images/ubuntu-mysql文件，再使用./redstack kick-start mysql重新构建镜像。如果你不这样做，会继续使用原来存在的镜像。
 
 
 # trove试用
