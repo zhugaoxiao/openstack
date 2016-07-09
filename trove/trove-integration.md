@@ -43,7 +43,7 @@ $ git clone https://github.com/openstack/trove-integration.git
 进入脚本目录，并开始进行 Trove 安装：
 ```
 $ cd trove-integration/scripts/
-exportGIT_BASE=http://git.trystack.cn
+export GIT_BASE=http://git.trystack.cn
 $ ./redstack install
 .........................................................................
 2016-06-09 08:24:04.617 | stack.sh completed in 3431 seconds.
