@@ -50,7 +50,9 @@ EOF
 * rhel系列
 
 ```
-# export DIB_DISTRIBUTION_MIRROR=http://amirror.com/centos
+# export DIB_DISTRIBUTION_MIRROR=http://mirrors.aliyun.com/centos
+# export DIB_CLOUD_IMAGES=http://cloud.centos.org/centos/7/images
+# export DIB_EPEL_MIRROR=http://mirrors.aliyun.com/epel
 # DIB_DEBUG_TRACE=0
 
 # disk-image-create -a amd64 -o centos7 vm centos7
@@ -270,3 +272,4 @@ http://docs.openstack.org/developer/diskimage-builder/
 http://docs.openstack.org/developer/trove/dev/building_guest_images.html              
 https://www.rdoproject.org/blog/2015/03/creation-of-trove-compatible-images-for-rdo/
 https://github.com/denismakogon/trove-guest-image-elements
+https://github.com/openstack/diskimage-builder
