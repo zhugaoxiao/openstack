@@ -10,6 +10,60 @@ diskimage-builder 是一个用于为云环境构建操作系统镜像的工具�
 - rhel
 - gentoo
 
+DiskImage-Builder是通过chroot到一个创建的临时目录中(默认在/tmp/image.*中可以看到)，同时绑定系统的/proc, /sys, 和/dev 目录来配置(硬件资源)环境的。当提供好的脚本执行完成后，将该tmp目录内容打入到镜像文件中即完成了所有的制作过程。
+
+DiskImage-Builder提供了一个完整的执行环境,那么要定制一个满足自己需求的镜像,只需要按照其提供的格式完成几个element, 接着就可以完成定制镜像了。
+
+## element
+
+element是一堆符合特定名称的文件(主要为脚本)/文件夹的集合。其主要包含以下的元素:
+
+* 用于执行脚本, 命名及存放的路径均有特殊含义(这些脚本中描述了在制作镜像的过程中需要执行哪些操作,比如安装好apache,创建用户等.)
+* 依赖描述
+* 描述文件, 不是强制的，但提供这个就相当于有一个良好的注释, 便于他人阅读和使用
+
+## element的执行脚本
+
+DiskImage-Builder默认提供了一些基础的element，可以在源码目录中diskimage-builder/elements中看到。其中执行的脚本，是按照目录划分的，按照顺序执行。每一个目录操作都有几个属性：
+
+* 其执行的环境,是否在chroot中
+* 输入变量
+* 输出变量
+以下列出了其执行的目录, 执行按先后顺率来排列
+
+
+操作|	执行目录|	接受变量|	输出变量
+---|---|---|---|---
+root.d	    | outside chroot | $ARCH=i386,amd64,armhf $TARGET_ROOT={path} |	-|
+extra-data.d|	outside chroot |	$TMP_HOOKS_PATH	|-
+pre-install.d|	in chroot    |	-|	-|
+install.d    |	in chroot    |	-|	-|
+post-install.d | in chroot   |	-|	-|
+block-device.d | outside chroot |	$IMAGE_BLOCK_DEVICE={path} $TARGET_ROOT={path}	|$IMAGE_BLOCK_DEVICE={path}
+finalise.d	  | in chroot    |	-|	-|
+cleanup.d     |	outside chroot |	$ARCH=i386,amd64,armhf $TARGET_ROOT={path}|	-|
+
+
+## element之间的依赖
+
+element的依赖主要由两个文件来描述
+
+* element-deps:
+
+描述该elements所依赖的element, 那么在执行该elment之前会先执行其依赖的element。如默认的element: ubuntu
+```
+cache-url cloud-init-datasources dib-run-parts dkms dpkg
+```
+也就是说在执行elementubuntu之前会先去执行如dkms,dpkg,cache-url等所依赖的element。
+
+* element-provides:
+
+描述该elements额外提供哪些element的功能, 也就说若执行该element,那么其额外提供的element就不会在执行。依然拿ubuntu来举例：
+```
+operating-system
+```
+这个就说明,若选择了ubuntu，则不会执行名为operating-system的element了。
+
 ## 安装
 
 环境要求
@@ -96,6 +150,7 @@ EOF
 
 * nginx
 创建 nginx element
+
 ```
 # mkdir –p ~/elements/nginx
 # cd ~/elements/nginx
@@ -273,3 +328,4 @@ http://docs.openstack.org/developer/trove/dev/building_guest_images.html
 https://www.rdoproject.org/blog/2015/03/creation-of-trove-compatible-images-for-rdo/
 https://github.com/denismakogon/trove-guest-image-elements
 https://github.com/openstack/diskimage-builder
+http://www.lnmpy.com/disk-image-builder/
